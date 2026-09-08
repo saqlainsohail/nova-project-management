@@ -107,3 +107,52 @@ router.delete("/:id", authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+
+router.post("/:id/members", authMiddleware, async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const User = require("../models/user");
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    const project = await Project.findOne({
+      _id: req.params.id,
+      owner: req.user.id,
+    });
+
+    if (!project) {
+      return res.status(404).json({
+        message: "Project not found",
+      });
+    }
+
+    if (project.members.includes(user._id)) {
+      return res.status(400).json({
+        message: "User is already a member",
+      });
+    }
+
+    project.members.push(user._id);
+
+    await project.save();
+
+    const updatedProject = await Project.findById(project._id)
+      .populate("owner", "name email")
+      .populate("members", "name email");
+
+    res.json(updatedProject);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      message: "Failed to add member",
+    });
+  }
+});
