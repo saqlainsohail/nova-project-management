@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const API = "http://localhost:5000/api";
+const API =
+  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 function App() {
   const [user, setUser] = useState(
@@ -208,6 +209,46 @@ function App() {
       }
     } catch (error) {
       console.error(error);
+    }
+  }
+
+  async function addMember(projectId, email) {
+    if (!email.trim()) {
+      alert("Enter team member email");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API}/projects/${projectId}/members`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.message || "Unable to add member");
+        return;
+      }
+
+      setProjects((prevProjects) =>
+        prevProjects.map((project) =>
+          project._id === projectId ? data : project
+        )
+      );
+
+      if (activeProject?._id === projectId) {
+        setActiveProject(data);
+      }
+
+      alert("Team member added successfully!");
+    } catch (error) {
+      console.error(error);
+      alert("Unable to add team member");
     }
   }
 
@@ -1040,21 +1081,80 @@ function App() {
               </div>
             </div>
 
-            <div className="panel team-card">
-              <div className="big-avatar">
-                {user.name?.charAt(0).toUpperCase()}
+            {!activeProject ? (
+              <div className="panel">
+                <div className="select-project">
+                  <div>👥</div>
+                  <h3>Select a project</h3>
+                  <p>
+                    Choose a project from Projects to view and manage your team.
+                  </p>
+                  <button
+                    className="primary-button"
+                    onClick={() => setActiveTab("Projects")}
+                  >
+                    View Projects
+                  </button>
+                </div>
               </div>
+            ) : (
+              <>
+                <div className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h3>{activeProject.name} Team</h3>
+                      <p>
+                        {activeProject.members?.length || 0} team member
+                        {activeProject.members?.length === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                  </div>
 
-              <h2>{user.name}</h2>
+                  <div className="project-list">
+                    {activeProject.members?.map((member) => (
+                      <div className="project-row" key={member._id}>
+                        <div className="user-avatar">
+                          {member.name?.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="user-details">
+                          <strong>{member.name}</strong>
+                          <small>{member.email}</small>
+                        </div>
+                        {member._id === activeProject.owner?._id && (
+                          <span className="member-badge">Owner</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
-              <p>{user.email}</p>
+                <div className="panel">
+                  <h3>Add Team Member</h3>
+                  <p>Invite an existing NOVA user using their email address.</p>
 
-              <span className="member-badge">
-                Project Member
-              </span>
-            </div>
+                  <form
+                    className="task-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const email = e.target.email.value;
+                      addMember(activeProject._id, email);
+                      e.target.reset();
+                    }}
+                  >
+                    <input
+                      name="email"
+                      type="email"
+                      placeholder="team.member@example.com"
+                      required
+                    />
+                    <button className="primary-button">Add Member</button>
+                  </form>
+                </div>
+              </>
+            )}
           </section>
         )}
+
       </main>
     </div>
   );

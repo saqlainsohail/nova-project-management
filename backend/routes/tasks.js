@@ -5,7 +5,42 @@ const authMiddleware = require("../middleware/auth");
 
 const router = express.Router();
 
-// GET TASKS
+// Automatically calculate project progress
+async function updateProjectProgress(projectId) {
+  const tasks = await Task.find({ project: projectId });
+
+  if (tasks.length === 0) {
+    await Project.findByIdAndUpdate(projectId, {
+      progress: 0,
+      status: "Planning",
+    });
+    return;
+  }
+
+  const completedTasks = tasks.filter(
+    (task) => task.status === "Completed"
+  ).length;
+
+  const progress = Math.round(
+    (completedTasks / tasks.length) * 100
+  );
+
+  let status = "Active";
+
+  if (progress === 0) {
+    status = "Planning";
+  } else if (progress === 100) {
+    status = "Completed";
+  }
+
+  await Project.findByIdAndUpdate(projectId, {
+    progress,
+    status,
+  });
+}
+
+
+// GET ALL TASKS
 router.get("/", authMiddleware, async (req, res) => {
   try {
     const projects = await Project.find({
@@ -15,7 +50,9 @@ router.get("/", authMiddleware, async (req, res) => {
       ],
     }).select("_id");
 
-    const projectIds = projects.map((project) => project._id);
+    const projectIds = projects.map(
+      (project) => project._id
+    );
 
     const tasks = await Task.find({
       project: { $in: projectIds },
@@ -26,11 +63,14 @@ router.get("/", authMiddleware, async (req, res) => {
 
     res.json(tasks);
   } catch (error) {
+    console.error(error);
+
     res.status(500).json({
       message: "Failed to fetch tasks",
     });
   }
 });
+
 
 // CREATE TASK
 router.post("/", authMiddleware, async (req, res) => {
@@ -43,6 +83,12 @@ router.post("/", authMiddleware, async (req, res) => {
       assignedTo,
       dueDate,
     } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({
+        message: "Task title is required",
+      });
+    }
 
     const projectExists = await Project.findOne({
       _id: project,
@@ -59,26 +105,35 @@ router.post("/", authMiddleware, async (req, res) => {
     }
 
     const task = await Task.create({
-      title,
-      description,
+      title: title.trim(),
+      description: description || "",
       project,
-      priority,
+      priority: priority || "Medium",
       assignedTo: assignedTo || null,
       dueDate: dueDate || null,
     });
 
-    res.status(201).json(task);
+    await updateProjectProgress(project);
+
+    const populatedTask = await Task.findById(task._id)
+      .populate("project", "name")
+      .populate("assignedTo", "name email");
+
+    res.status(201).json(populatedTask);
   } catch (error) {
+    console.error(error);
+
     res.status(500).json({
       message: "Failed to create task",
     });
   }
 });
 
+
 // UPDATE TASK
 router.put("/:id", authMiddleware, async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id).populate("project");
+    const task = await Task.findById(req.params.id);
 
     if (!task) {
       return res.status(404).json({
@@ -87,7 +142,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
     }
 
     const project = await Project.findOne({
-      _id: task.project._id,
+      _id: task.project,
       $or: [
         { owner: req.user.id },
         { members: req.user.id },
@@ -118,18 +173,27 @@ router.put("/:id", authMiddleware, async (req, res) => {
 
     await task.save();
 
-    res.json(task);
+    await updateProjectProgress(task.project);
+
+    const updatedTask = await Task.findById(task._id)
+      .populate("project", "name")
+      .populate("assignedTo", "name email");
+
+    res.json(updatedTask);
   } catch (error) {
+    console.error(error);
+
     res.status(500).json({
       message: "Failed to update task",
     });
   }
 });
 
+
 // DELETE TASK
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id).populate("project");
+    const task = await Task.findById(req.params.id);
 
     if (!task) {
       return res.status(404).json({
@@ -138,7 +202,7 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     }
 
     const project = await Project.findOne({
-      _id: task.project._id,
+      _id: task.project,
       owner: req.user.id,
     });
 
@@ -148,12 +212,18 @@ router.delete("/:id", authMiddleware, async (req, res) => {
       });
     }
 
+    const projectId = task.project;
+
     await Task.findByIdAndDelete(req.params.id);
+
+    await updateProjectProgress(projectId);
 
     res.json({
       message: "Task deleted successfully",
     });
   } catch (error) {
+    console.error(error);
+
     res.status(500).json({
       message: "Failed to delete task",
     });
